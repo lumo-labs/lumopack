@@ -4,9 +4,10 @@ import figlet from "figlet";
 import archiver from "archiver";
 import fs from "fs-extra";
 import path from "path";
-import uglify from "uglify-js";
+import { minify as uglify } from "minify";
 
 console.log(figlet.textSync("lumoPACK", { horizontalLayout: "full" }));
+
 /**
  * Finds file in the given directory
  * @param {string} dir Specified directory
@@ -30,16 +31,23 @@ export const findFiles = (dir, names) => {
   return results;
 };
 
-export const minify = (filePath) => {
-  const code = fs.readFileSync(filePath, "utf8");
-  const res = uglify.minify(code);
+export const minify = async (filePath) => {
+  const res = await uglify(filePath, {
+    css: { compatibility: "*" },
+    js: {
+      type: "terser",
+      mangle: false,
+      mangleClassNames: false,
+      removeConsole: true,
+      removeUselessSpread: true,
+    },
+    html: {
+      minifyJS: false,
+      minifyCSS: false,
+    },
+  });
 
-  if (res.error) {
-    console.error(`Error minifying ${filePath}:`, res.error);
-    process.exit(1);
-  }
-
-  return res.code;
+  return res;
 };
 
 program
@@ -50,7 +58,7 @@ program
   .option("-c, --css <file>", "The CSS file to be cleaned")
   .option("-js, --js <file>", "The JS file to be cleaned")
   .option("-j, --json <file>", "The JSON file to be cleaned")
-  .action(({ dir, html, css, js, json }) => {
+  .action(async ({ dir, html, css, js, json }) => {
     const files = findFiles(dir, [html, css, js, json]);
     const newName = path
       .basename(dir)
@@ -75,16 +83,17 @@ program
       return;
     }
 
-    const ignore = [".json", ".css", ".html"];
+    const ignore = [".json"];
 
-    files.forEach((file) => {
+    for (const file of files) {
       const minified = ignore.includes(path.extname(file))
         ? fs.readFileSync(file, "utf8")
-        : minify(file);
+        : await minify(file);
 
-      const fileName = `${newName}${path.extname(file)}`;
+      const fileName = `${path.extname(file).substring(1)}.txt`;
+      console.log(`${file} ->`, fileName);
       archive.append(minified, { name: fileName });
-    });
+    }
 
     archive.finalize();
     console.log(`All files minified and zipped: ${newName}.zip`);
